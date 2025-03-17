@@ -1,76 +1,76 @@
 import matplotlib.pyplot as plt
 import networkx as nx
+from collections import deque
 
 class Node:
     def __init__(self, name, depth, max_player=True):
-        """
-        :param name: identificador del nodo (por ejemplo, "N0", "N1", etc.)
-        :param depth: la profundidad del nodo en el árbol (0 = raíz).
-        :param max_player: True si este nivel corresponde a MAX, False si corresponde a MIN.
-        """
         self.name = name
         self.depth = depth
         self.max_player = max_player
         self.children = []
-        self.value = None   # Sólo se asigna si es nodo hoja o si lo queremos forzar
+        self.value = None     # Valor en caso de hoja o resultado de alfa-beta
+        self.pruned = False   # Indica si este nodo quedó podado
 
     def is_terminal(self):
         return len(self.children) == 0
 
     def __repr__(self):
-        return f"Node({self.name}, value={self.value}, max={self.max_player})"
+        return (f"Node({self.name}, depth={self.depth}, "
+                f"max={self.max_player}, value={self.value}, pruned={self.pruned})")
+
 
 def alpha_beta(node, alpha, beta):
-    """
-    Algoritmo Alfa-Beta básico sin límite de profundidad adicional,
-    asumiendo que el árbol ya está construido hasta los estados terminales.
-    """
+    if node.pruned:
+        return None
+
     if node.is_terminal():
-        # Si es hoja, devolvemos su valor directamente
         return node.value
 
     if node.max_player:
         value = float('-inf')
-        for child in node.children:
-            value = max(value, alpha_beta(child, alpha, beta))
-            alpha = max(alpha, value)
+        for i, child in enumerate(node.children):
+            child_value = alpha_beta(child, alpha, beta)
+            if child_value is not None:
+                value = max(value, child_value)
+                alpha = max(alpha, value)
+
             if alpha >= beta:
-                break  # poda
-        node.value = value  # Se puede almacenar la evaluación en el nodo
+                # Marcar podados los hijos restantes
+                for j in range(i+1, len(node.children)):
+                    node.children[j].pruned = True
+                break
+
+        node.value = value
         return value
     else:
         value = float('inf')
-        for child in node.children:
-            value = min(value, alpha_beta(child, alpha, beta))
-            beta = min(beta, value)
+        for i, child in enumerate(node.children):
+            child_value = alpha_beta(child, alpha, beta)
+            if child_value is not None:
+                value = min(value, child_value)
+                beta = min(beta, value)
+
             if beta <= alpha:
-                break  # poda
+                # Marcar podados los hijos restantes
+                for j in range(i+1, len(node.children)):
+                    node.children[j].pruned = True
+                break
+
         node.value = value
         return value
 
-def build_tree_manual(depth, branching_factor, current_depth=0, node_name="N0", max_player=True, node_counter=[0]):
-    """
-    Construye un árbol de forma recursiva hasta 'depth' niveles.
-    - depth: profundidad total deseada (0 = sólo raíz).
-    - branching_factor: cuántos hijos por nodo (si deseas igual para todos).
-    - current_depth: profundidad actual en la recursión.
-    - node_name: nombre identificador para este nodo.
-    - max_player: True si en este nivel le toca a MAX, False si le toca a MIN.
-    - node_counter: array de 1 elemento para llevar la cuenta de nodos creados.
-    """
-    node = Node(node_name, current_depth, max_player)
 
-    # Si llegamos a la profundidad deseada, preguntamos valor al usuario (nodo hoja)
+def build_tree_manual(depth, branching_factor, current_depth=0, node_name="N0", max_player=True, node_counter=[0]):
+    node = Node(node_name, current_depth, max_player)
     if current_depth == depth:
         valor_str = input(f"Ingrese valor para la hoja {node_name} (profundidad {current_depth}): ")
         try:
             node.value = float(valor_str)
         except ValueError:
-            print("Valor inválido. Se asignará 0 por defecto.")
+            print("Valor inválido. Se asigna 0 por defecto.")
             node.value = 0
         return node
 
-    # Si no es hoja, creamos hijos
     for i in range(branching_factor):
         node_counter[0] += 1
         new_name = f"N{node_counter[0]}"
@@ -86,51 +86,101 @@ def build_tree_manual(depth, branching_factor, current_depth=0, node_name="N0", 
 
     return node
 
-def plot_tree(root):
-    """
-    Genera un grafo con NetworkX y lo dibuja con matplotlib.
-    Cada nodo queda etiquetado con su nombre y valor final (después de Alfa-Beta).
-    """
-    G = nx.Graph()
 
-    # Haremos un recorrido BFS o DFS para añadir nodos y aristas
+def get_hierarchy_pos(root, x_factor=2.0):
+    """
+    Genera posiciones (x,y) para cada nodo en forma jerárquica (raíz arriba).
+    - y = -level (raíz en y=0, hijos en y negativo)
+    - x se reparte según la cantidad de nodos en cada nivel.
+    El parámetro x_factor define cuánto separarse en X.
+    """
+    level_dict = {}
+    q = deque()
+    q.append((root, 0))
+    visited = set([root])
+    level_dict[0] = [root]
+
+    while q:
+        current, level = q.popleft()
+        for child in current.children:
+            if child not in visited:
+                visited.add(child)
+                q.append((child, level+1))
+                if (level+1) not in level_dict:
+                    level_dict[level+1] = []
+                level_dict[level+1].append(child)
+
+    pos = {}
+    for level, nodes_in_level in level_dict.items():
+        num_nodes = len(nodes_in_level)
+        # Distribuir en X
+        for i, node_obj in enumerate(nodes_in_level):
+            # El factor x_factor separa más o menos
+            x = x_factor * (i - (num_nodes - 1)/2.0)
+            y = -level  # la raíz en y=0, luego más abajo
+            pos[node_obj.name] = (x, y)
+
+    return pos
+
+
+def plot_tree(root):
+    G = nx.DiGraph()
     stack = [root]
+    name_to_node = {root.name: root}
+
     while stack:
         current = stack.pop()
-        # Añadimos el nodo (etiquetamos con: nombre y valor final)
-        label = f"{current.name}\n(v={current.value})"
-        G.add_node(current.name, label=label)
-        # Añadimos los hijos
+        G.add_node(current.name)
         for child in current.children:
-            stack.append(child)
+            name_to_node[child.name] = child
             G.add_edge(current.name, child.name)
+            stack.append(child)
 
-    # Extraemos etiquetas
-    labels = nx.get_node_attributes(G, 'label')
+    # Calcula posiciones con un factor mayor (por ejemplo, x_factor=3.0)
+    pos = get_hierarchy_pos(root, x_factor=3.0)
 
-    # Dibujamos el grafo
-    pos = nx.spring_layout(G)  # Calcula posición de cada nodo
-    nx.draw(G, pos, with_labels=True, labels=labels)
-    plt.title("Árbol con valores tras Alfa-Beta")
+    labels = {}
+    for node_name, node_obj in name_to_node.items():
+        val_str = "None" if node_obj.value is None else str(node_obj.value)
+        labels[node_name] = f"{node_name}\n(v={val_str})"
+
+    node_colors = []
+    for node_name in G.nodes():
+        if name_to_node[node_name].pruned:
+            node_colors.append("red")
+        else:
+            node_colors.append("lightgreen")
+
+    # Ajustar tamaño de la figura (16 ancho x 10 alto)
+    plt.figure(figsize=(16, 10))
+
+    nx.draw(
+        G,
+        pos,
+        with_labels=True,
+        labels=labels,
+        node_color=node_colors,
+        node_size=2500,
+        font_size=8,
+        arrows=False
+    )
+    plt.title("Árbol Alfa-Beta (raíz arriba). Nodos podados en rojo.")
     plt.show()
 
+
 def main():
-    print("=== Construcción de un árbol para probar Alfa-Beta ===")
-    # Pedimos al usuario la profundidad (0 = solo raíz con valor, 1 = raíz con hojas, etc.)
+    print("=== Construcción de un árbol para probar Alfa-Beta con la raíz en la parte superior ===")
     profundidad = int(input("Ingrese la profundidad del árbol (ej. 2): "))
     branching = int(input("Ingrese el número de hijos por nodo (ej. 2): "))
 
-    # Construimos el árbol
     root = build_tree_manual(depth=profundidad, branching_factor=branching)
 
-    # Aplicamos Alfa-Beta
-    print("\nCalculando resultado Alfa-Beta...\n")
+    print("\nEjecutando Alfa-Beta...\n")
     resultado = alpha_beta(root, float('-inf'), float('inf'))
+    print(f"Valor óptimo en la raíz ({root.name}): {resultado}")
 
-    print(f"Valor óptimo calculado en la raíz ({root.name}): {resultado}")
-
-    # Graficamos el árbol
     plot_tree(root)
+
 
 if __name__ == "__main__":
     main()
