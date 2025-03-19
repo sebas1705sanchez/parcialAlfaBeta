@@ -12,7 +12,7 @@ class Node:
         self.name = name # Identidica el nodo
         self.depth = depth # Profundidad del arbol y de cada nodo
         self.max_player = max_player # nivel Max o Min
-        self.children = [] # Nodos hijos
+        self.children = [] # lista Nodos hijos
         self.value = None    # valor si es hoja o resultado de Alfa-Beta
         self.pruned = False  # indica si este nodo se podó
 
