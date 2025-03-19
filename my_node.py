@@ -1,14 +1,18 @@
 # my_node.py
 
+"""
+Este archivo solo contiene la definicion de la calse Node
+"""
+
 class Node:
     """
     Representa un nodo dentro del árbol de juego.
     """
     def __init__(self, name, depth, max_player=True):
-        self.name = name
-        self.depth = depth
-        self.max_player = max_player
-        self.children = []
+        self.name = name # Identidica el nodo
+        self.depth = depth # Profundidad del arbol y de cada nodo
+        self.max_player = max_player # nivel Max o Min
+        self.children = [] # Nodos hijos
         self.value = None    # valor si es hoja o resultado de Alfa-Beta
         self.pruned = False  # indica si este nodo se podó
 
